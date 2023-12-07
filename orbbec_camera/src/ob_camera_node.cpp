@@ -70,31 +70,62 @@ OBCameraNode::OBCameraNode(rclcpp::Node *node, std::shared_ptr<ob::Device> devic
   auto device_info = device_->getDeviceInfo();
   std::string device_model = device_info->name();
 
-  if (color_info_url_ != "")
+  if (color_info_url_ != "" && ir_info_url_ != "")
   {
     color_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), color_info_url_));
-    if (color_info_manager_->isCalibrated())
+    ir_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), ir_info_url_));
+
+    if (!color_info_manager_->isCalibrated() && ir_info_manager_->isCalibrated())
     {
-      RCLCPP_INFO_STREAM(logger_, "Loading COLOR calibration file successfully");
+      RCLCPP_ERROR_STREAM(logger_, "Loading \033[1mCOLOR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m ERROR");
+    }
+    else if (color_info_manager_->isCalibrated() && !ir_info_manager_->isCalibrated())
+    {
+      RCLCPP_ERROR_STREAM(logger_, "Loading \033[1mIR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m ERROR");
+    }
+    else if (!color_info_manager_->isCalibrated() && !ir_info_manager_->isCalibrated())
+    {
+      RCLCPP_ERROR_STREAM(logger_, "Loading \033[1mCOLOR\033[0m and \033[1mIR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m ERROR");
     }
     else
     {
-      RCLCPP_ERROR_STREAM(logger_, "Loading COLOR calibration file ERROR");
+      RCLCPP_INFO_STREAM(logger_, "Loading \033[1mCOLOR\033[0m and \033[1mIR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m successfully");
     }
   }
-  if (ir_info_url_ != "")
+  else if (color_info_url_ != "" && ir_info_url_ == "" )
   {
-    ir_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), ir_info_url_));
-    if (ir_info_manager_->isCalibrated())
+    color_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), color_info_url_));
+    
+    if (!color_info_manager_->isCalibrated())
     {
-      RCLCPP_INFO_STREAM(logger_, "Loading IR calibration file successfully");
+      RCLCPP_ERROR_STREAM(logger_, "Loading \033[1mCOLOR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m ERROR");
     }
     else
     {
-      RCLCPP_ERROR_STREAM(logger_, "Loading IR calibration file ERROR");
+      RCLCPP_INFO_STREAM(logger_, "Loading \033[1mCOLOR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m successfully");
     }
- }
-  
+  }
+  else if (color_info_url_ == "" && ir_info_url_ != "" )
+  {
+    ir_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), ir_info_url_));
+
+    if (!ir_info_manager_->isCalibrated())
+    {
+      RCLCPP_ERROR_STREAM(logger_, "Loading \033[1mIR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m ERROR");
+    }
+    else
+    {
+      RCLCPP_INFO_STREAM(logger_, "Loading \033[1mIR\033[0m calibration file for model "
+        << "\033[92m\033[1m" << device_model << "\033[0m successfully");
+    }
+  }
 }
 
 template <class T>
