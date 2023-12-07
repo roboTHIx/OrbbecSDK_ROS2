@@ -65,6 +65,36 @@ OBCameraNode::OBCameraNode(rclcpp::Node *node, std::shared_ptr<ob::Device> devic
   if (enable_stream_[COLOR]) {
     rgb_buffer_ = new uint8_t[width_[COLOR] * height_[COLOR] * 3];
   }
+
+  // Bug fix for correct camera info publishing
+  auto device_info = device_->getDeviceInfo();
+  std::string device_model = device_info->name();
+
+  if (color_info_url_ != "")
+  {
+    color_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), color_info_url_));
+    if (color_info_manager_->isCalibrated())
+    {
+      RCLCPP_INFO_STREAM(logger_, "Loading COLOR calibration file successfully");
+    }
+    else
+    {
+      RCLCPP_ERROR_STREAM(logger_, "Loading COLOR calibration file ERROR");
+    }
+  }
+  if (ir_info_url_ != "")
+  {
+    ir_info_manager_.reset(new camera_info_manager::CameraInfoManager(node_, device_model.c_str(), ir_info_url_));
+    if (ir_info_manager_->isCalibrated())
+    {
+      RCLCPP_INFO_STREAM(logger_, "Loading IR calibration file successfully");
+    }
+    else
+    {
+      RCLCPP_ERROR_STREAM(logger_, "Loading IR calibration file ERROR");
+    }
+ }
+  
 }
 
 template <class T>
@@ -1023,19 +1053,38 @@ void OBCameraNode::onNewFrameCallback(const std::shared_ptr<ob::Frame> &frame,
   if(!camera_param_) {
     camera_param_ = pipeline_->getCameraParam();
   }
-  auto &intrinsic =
-      stream_index == COLOR ? camera_param_->rgbIntrinsic : camera_param_->depthIntrinsic;
-  auto &distortion =
-      stream_index == COLOR ? camera_param_->rgbDistortion : camera_param_->depthDistortion;
-  std::string frame_id =
-      depth_registration_ ? depth_aligned_frame_id_[stream_index] : optical_frame_id_[stream_index];
-  auto camera_info = convertToCameraInfo(intrinsic, distortion, width);
-  camera_info.header.stamp = timestamp;
-  camera_info.header.frame_id = frame_id;
-  camera_info.width = width;
-  camera_info.height = height;
-  CHECK(camera_info_publishers_.count(stream_index) > 0);
-  camera_info_publishers_[stream_index]->publish(camera_info);
+
+  // Bug fix for correct camera info publishing
+  std::string frame_id = depth_registration_ ? depth_aligned_frame_id_[stream_index] : optical_frame_id_[stream_index];
+
+  if ((stream_index == COLOR && color_info_url_ != "") || (stream_index == INFRA0 && ir_info_url_ != ""))
+  {
+    if (stream_index == COLOR)
+    {
+      camera_infos_[stream_index] = color_info_manager_->getCameraInfo();
+    }
+    else if (stream_index == INFRA0)
+    {
+      camera_infos_[stream_index] = ir_info_manager_->getCameraInfo();
+    }
+    camera_infos_[stream_index].header.stamp    = timestamp;
+    camera_infos_[stream_index].header.frame_id = frame_id;
+    camera_infos_[stream_index].width           = width;
+    camera_infos_[stream_index].height          = height;
+  }
+  else
+  {
+    auto &intrinsic = stream_index == COLOR ? camera_param_->rgbIntrinsic : camera_param_->depthIntrinsic;
+    auto &distortion = stream_index == COLOR ? camera_param_->rgbDistortion : camera_param_->depthDistortion;
+    auto camera_info = convertToCameraInfo(intrinsic, distortion, width);
+    camera_info.header.stamp = timestamp;
+    camera_info.header.frame_id = frame_id;
+    camera_info.width = width;
+    camera_info.height = height;
+    CHECK(camera_info_publishers_.count(stream_index) > 0);
+    camera_info_publishers_[stream_index]->publish(camera_info);
+  }
+
   auto &image = images_[stream_index];
   if (image.empty() || image.cols != width || image.rows != height) {
     image.create(height, width, image_format_[stream_index]);
@@ -1064,8 +1113,20 @@ void OBCameraNode::onNewFrameCallback(const std::shared_ptr<ob::Frame> &frame,
   image_msg->step = width * unit_step_size_[stream_index];
   image_msg->header.frame_id = frame_id;
 
-  CHECK(image_publishers_.count(stream_index) > 0);
-  image_publishers_[stream_index].publish(image_msg);
+  // Bug fix for correct camera info publishing
+  if ((stream_index == COLOR && color_info_url_ != "") || (stream_index == INFRA0 && ir_info_url_ != ""))
+  {
+    CHECK(camera_info_publishers_.count(stream_index) > 0);
+    camera_info_publishers_[stream_index]->publish(camera_infos_[stream_index]);
+    CHECK(image_publishers_.count(stream_index) > 0);
+    image_publishers_[stream_index].publish(image_msg);
+  }
+  else
+  {
+    CHECK(image_publishers_.count(stream_index) > 0);
+    image_publishers_[stream_index].publish(image_msg);
+  }
+
   saveImageToFile(stream_index, image, image_msg);
 }
 
